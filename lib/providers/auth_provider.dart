@@ -16,7 +16,6 @@ class Auth extends _$Auth {
       password: password,
     );
     state = res.user;
-    ref.invalidate(userRoleProvider);
   }
 
   Future<void> requestSignUpOtp(String email, String password) async {
@@ -58,7 +57,6 @@ class Auth extends _$Auth {
         });
       }
       state = res.user;
-      ref.invalidate(userRoleProvider);
     } else {
       throw Exception('Failed to verify OTP');
     }
@@ -67,7 +65,6 @@ class Auth extends _$Auth {
   Future<void> signOut() async {
     await Supabase.instance.client.auth.signOut();
     state = null;
-    ref.invalidate(userRoleProvider);
   }
 }
 

@@ -52,8 +52,18 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
       }
 
       // Fetch student name from students table
-      final studentRes = await Supabase.instance.client.from('students').select('full_name').eq('id', user.id).single();
-      final studentName = studentRes['full_name'];
+      final studentRes = await Supabase.instance.client.from('students').select('full_name').eq('id', user.id).maybeSingle();
+      final studentName = studentRes != null ? studentRes['full_name'] : (user.email ?? 'Unknown Student');
+
+      // Ensure the student exists in the students table to satisfy foreign key constraints
+      // This handles cases where email verification was skipped.
+      if (studentRes == null) {
+        await Supabase.instance.client.from('students').insert({
+          'id': user.id,
+          'full_name': studentName,
+          'email': user.email,
+        });
+      }
 
       // Create submission record immediately
       final subId = await submissionService.createSubmission(exam.id, user.id, studentName);
