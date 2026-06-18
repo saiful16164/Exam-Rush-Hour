@@ -6,6 +6,7 @@ class Submission {
   final String? studentEmail;
   final DateTime submittedAt;
   final int? writtenMarks;
+  final int? mcqMarks;
 
   Submission({
     required this.id,
@@ -15,6 +16,7 @@ class Submission {
     this.studentEmail,
     required this.submittedAt,
     this.writtenMarks,
+    this.mcqMarks,
   });
 
   factory Submission.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class Submission {
       studentEmail: json['students'] != null ? json['students']['email'] : null,
       submittedAt: DateTime.parse(json['submitted_at']),
       writtenMarks: json['written_marks'],
+      mcqMarks: json['mcq_marks'],
     );
   }
 
@@ -37,6 +40,7 @@ class Submission {
       'student_name': studentName,
       'submitted_at': submittedAt.toIso8601String(),
       'written_marks': writtenMarks,
+      'mcq_marks': mcqMarks,
     };
   }
 }

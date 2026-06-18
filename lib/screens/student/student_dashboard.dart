@@ -77,20 +77,34 @@ class _StudentDashboardState extends ConsumerState<StudentDashboard> {
                 itemCount: filteredExams.length,
                 itemBuilder: (ctx, idx) {
                   final exam = filteredExams[idx];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(16),
-                      title: Text(exam.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text('Code: ${exam.examCode}\n${exam.description ?? ''}'),
-                      ),
-                      trailing: ElevatedButton(
-                        onPressed: () => context.push('/join/${exam.examCode}'),
-                        child: const Text('Join'),
-                      ),
-                    ),
+                  final user = ref.read(authProvider);
+                  
+                  return FutureBuilder<Submission?>(
+                    future: user != null ? SubmissionService().getStudentSubmission(exam.id, user.id) : Future.value(null),
+                    builder: (context, snapshot) {
+                      final submission = snapshot.data;
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.all(16),
+                          title: Text(exam.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text('Code: ${exam.examCode}\n${exam.description ?? ''}'),
+                          ),
+                          trailing: submission != null
+                            ? ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[200], foregroundColor: Colors.black87),
+                                onPressed: () => context.push('/student/result', extra: submission),
+                                child: const Text('View Result'),
+                              )
+                            : ElevatedButton(
+                                onPressed: () => context.push('/join/${exam.examCode}'),
+                                child: const Text('Join'),
+                              ),
+                        ),
+                      );
+                    }
                   );
                 }
               );

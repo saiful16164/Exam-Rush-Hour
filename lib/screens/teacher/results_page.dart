@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../models/submission.dart';
 import '../../services/submission_service.dart';
@@ -70,10 +71,6 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
   void _viewWrittenAnswers(Submission sub) async {
     // Fetch written answers
     final answers = await _supabase.from('written_answers').select().eq('submission_id', sub.id).order('page_number', ascending: true);
-    if (answers.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No written answers uploaded.')));
-      return;
-    }
 
     if (mounted) {
       final marksController = TextEditingController(text: sub.writtenMarks?.toString() ?? '');
@@ -95,26 +92,36 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
                     actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx))],
                   ),
                   Expanded(
-                    child: PageView.builder(
-                      itemCount: answers.length,
-                      itemBuilder: (context, index) {
-                        return InteractiveViewer(
-                          child: Image.network(
-                            answers[index]['image_url'],
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) return child;
-                              return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
-                            },
-                            errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
-                          ),
-                        );
-                      },
+                    child: answers.isEmpty
+                      ? const Center(child: Text('No written answers uploaded.', style: TextStyle(color: Colors.grey)))
+                      : PageView.builder(
+                          itemCount: answers.length,
+                          itemBuilder: (context, index) {
+                            final String url = answers[index]['image_url'];
+                            final bool isPdf = url.toLowerCase().contains('.pdf?t=') || url.toLowerCase().endsWith('.pdf');
+                            
+                            if (isPdf) {
+                              return SfPdfViewer.network(url);
+                            }
+
+                            return InteractiveViewer(
+                              child: Image.network(
+                                url,
+                                loadingBuilder: (context, child, progress) {
+                                  if (progress == null) return child;
+                                  return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
+                                },
+                                errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                              ),
+                            );
+                          },
+                        ),
+                  ),
+                  if (answers.isNotEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Text('Swipe to see next pages', style: TextStyle(color: Colors.grey)),
                     ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: Text('Swipe to see next pages', style: TextStyle(color: Colors.grey)),
-                  ),
                   Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: Row(

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -69,12 +70,64 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
   }
 
   Future<void> _pickImage() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext ctx) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Take a Photo'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickFromSource(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickFromSource(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf),
+                title: const Text('Upload PDF'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickPdf();
+                },
+              ),
+            ],
+          ),
+        );
+      }
+    );
+  }
+
+  Future<void> _pickFromSource(ImageSource source) async {
     final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+    final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
     if (image != null) {
       final bytes = await image.readAsBytes();
-      final ext = image.path.split('.').last;
+      final ext = image.path.split('.').last.toLowerCase();
       ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
+    }
+  }
+
+  Future<void> _pickPdf() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      withData: true,
+    );
+    if (result != null && result.files.single.bytes != null) {
+      ref.read(writtenAnswersProvider.notifier).addImages([{
+        'bytes': result.files.single.bytes, 
+        'ext': 'pdf',
+      }]);
     }
   }
 
@@ -187,8 +240,8 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
                         children: [
                           const Text('Your Answer Sheets:', style: TextStyle(fontWeight: FontWeight.bold)),
                           ElevatedButton.icon(
-                            icon: const Icon(Icons.camera_alt),
-                            label: const Text('Capture Page'),
+                            icon: const Icon(Icons.upload_file),
+                            label: const Text('Upload Answer'),
                             onPressed: _pickImage,
                           )
                         ],
@@ -201,6 +254,7 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
                             scrollDirection: Axis.horizontal,
                             itemCount: answerPages.length,
                             itemBuilder: (ctx, idx) {
+                              final isPdf = answerPages[idx]['ext'] == 'pdf';
                               return Stack(
                                 children: [
                                   Container(
@@ -208,11 +262,15 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
                                     width: 120,
                                     decoration: BoxDecoration(
                                       border: Border.all(color: Colors.grey),
-                                      image: DecorationImage(
+                                      color: isPdf ? Colors.red.shade50 : null,
+                                      image: isPdf ? null : DecorationImage(
                                         image: MemoryImage(answerPages[idx]['bytes'] as Uint8List),
                                         fit: BoxFit.cover,
                                       )
                                     ),
+                                    child: isPdf 
+                                        ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.picture_as_pdf, size: 40, color: Colors.red), SizedBox(height: 8), Text('PDF Document', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))]))
+                                        : null,
                                   ),
                                   Positioned(
                                     top: 0,

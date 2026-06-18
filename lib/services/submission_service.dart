@@ -35,6 +35,10 @@ class SubmissionService {
     }).toList();
 
     await _supabase.from('mcq_answers').insert(payload);
+
+    // Calculate score and store it immediately
+    final score = await getMcqScore(submissionId);
+    await _supabase.from('submissions').update({'mcq_marks': score}).eq('id', submissionId);
   }
 
   Future<void> submitWrittenAnswer(String submissionId, String imageUrl, int pageNumber) async {
@@ -97,6 +101,11 @@ class SubmissionService {
   }
 
   Future<int> getMcqScore(String submissionId) async {
+    final subData = await _supabase.from('submissions').select('mcq_marks').eq('id', submissionId).maybeSingle();
+    if (subData != null && subData['mcq_marks'] != null) {
+      return subData['mcq_marks'] as int;
+    }
+
     final answers = await _supabase.from('mcq_answers').select('selected_option, mcq_questions(correct_option, marks)').eq('submission_id', submissionId);
     int score = 0;
     for (var a in answers as List) {
@@ -104,6 +113,10 @@ class SubmissionService {
         score += (a['mcq_questions']['marks'] as int);
       }
     }
+
+    // Save for next time
+    await _supabase.from('submissions').update({'mcq_marks': score}).eq('id', submissionId);
+    
     return score;
   }
 
