@@ -13,18 +13,23 @@ class StudentResultPage extends StatefulWidget {
 class _StudentResultPageState extends State<StudentResultPage> {
   int? _mcqScore;
   bool _isLoading = true;
+  late Submission _currentSubmission;
 
   @override
   void initState() {
     super.initState();
+    _currentSubmission = widget.submission;
     _loadScore();
   }
 
   Future<void> _loadScore() async {
     try {
-      final score = await SubmissionService().getMcqScore(widget.submission.id);
+      final updatedSub = await SubmissionService().getStudentSubmission(_currentSubmission.examId, _currentSubmission.studentId!);
+      final score = await SubmissionService().getMcqScore(_currentSubmission.id);
+      
       if (mounted) {
         setState(() {
+          if (updatedSub != null) _currentSubmission = updatedSub;
           _mcqScore = score;
           _isLoading = false;
         });
@@ -57,7 +62,7 @@ class _StudentResultPageState extends State<StudentResultPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Great job, ${widget.submission.studentName}. Here is your performance summary.',
+                  'Great job, ${_currentSubmission.studentName}. Here is your performance summary.',
                   style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                   textAlign: TextAlign.center,
                 ),
@@ -99,17 +104,17 @@ class _StudentResultPageState extends State<StudentResultPage> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: widget.submission.writtenMarks != null 
+                                  color: _currentSubmission.writtenMarks != null 
                                       ? const Color(0xFF1DB954).withOpacity(0.1)
                                       : Colors.orange.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 child: Text(
-                                  widget.submission.writtenMarks != null ? '${widget.submission.writtenMarks}' : 'Pending',
+                                  _currentSubmission.writtenMarks != null ? '${_currentSubmission.writtenMarks}' : 'Pending',
                                   style: TextStyle(
                                     fontSize: 24, 
                                     fontWeight: FontWeight.bold, 
-                                    color: widget.submission.writtenMarks != null ? const Color(0xFF1DB954) : Colors.orange,
+                                    color: _currentSubmission.writtenMarks != null ? const Color(0xFF1DB954) : Colors.orange,
                                   ),
                                 ),
                               ),
