@@ -46,7 +46,7 @@ class _LandingPageState extends ConsumerState<LandingPage> {
                 const Icon(Icons.school, size: 100, color: Color(0xFF1DB954)),
                 const SizedBox(height: 24),
                 const Text(
-                  'ExamFlow',
+                  'Exam Rush Hour',
                   style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),

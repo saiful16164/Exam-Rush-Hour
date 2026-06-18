@@ -11,18 +11,18 @@ void main() async {
 
   await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
 
-  runApp(const ProviderScope(child: ExamFlowApp()));
+  runApp(const ProviderScope(child: ExamRushHourApp()));
 }
 
-class ExamFlowApp extends ConsumerWidget {
-  const ExamFlowApp({super.key});
+class ExamRushHourApp extends ConsumerWidget {
+  const ExamRushHourApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'ExamFlow',
+      title: 'Exam Rush Hour',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

@@ -21,7 +21,7 @@ class _StudentDashboardState extends ConsumerState<StudentDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ExamFlow Student'),
+        title: const Text('Exam Rush Hour Student'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),

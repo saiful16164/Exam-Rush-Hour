@@ -54,7 +54,7 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email found for this student.')));
       return;
     }
-    final subject = Uri.encodeComponent('Your Exam Result for ExamFlow');
+    final subject = Uri.encodeComponent('Your Exam Result for Exam Rush Hour');
     final body = Uri.encodeComponent(
         'Hello ${sub.studentName},\n\n'
         'Your marks have been published.\n'

@@ -21,6 +21,31 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
   final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  @override
+  void initState() {
+    super.initState();
+    _loadStudentName();
+  }
+
+  Future<void> _loadStudentName() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final studentRes = await Supabase.instance.client.from('students').select('full_name').eq('id', user.id).maybeSingle();
+      if (studentRes != null && studentRes['full_name'] != null && studentRes['full_name'].toString().isNotEmpty && studentRes['full_name'] != user.email) {
+        if (mounted) {
+          setState(() {
+            _nameController.text = studentRes['full_name'];
+          });
+        }
+      } else if (user.userMetadata?['full_name'] != null) {
+        if (mounted) {
+          setState(() {
+            _nameController.text = user.userMetadata!['full_name'];
+          });
+        }
+      }
+    }
+  }
 
   Future<void> _joinExam() async {
     final state = GoRouterState.of(context);
@@ -53,12 +78,21 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
 
       // Fetch student name from students table
       final studentRes = await Supabase.instance.client.from('students').select('full_name').eq('id', user.id).maybeSingle();
-      final studentName = studentRes != null ? studentRes['full_name'] : (user.email ?? 'Unknown Student');
+      
+      final inputName = _nameController.text.trim();
+      String studentName = user.email ?? 'Unknown Student';
+      
+      if (inputName.isNotEmpty) {
+        studentName = inputName;
+      } else if (studentRes != null && studentRes['full_name'] != null && studentRes['full_name'].toString().isNotEmpty) {
+        studentName = studentRes['full_name'];
+      } else if (user.userMetadata?['full_name'] != null) {
+        studentName = user.userMetadata!['full_name'];
+      }
 
-      // Ensure the student exists in the students table to satisfy foreign key constraints
-      // This handles cases where email verification was skipped.
-      if (studentRes == null) {
-        await Supabase.instance.client.from('students').insert({
+      // Upsert the student name to ensure it's saved correctly
+      if (studentRes == null || studentRes['full_name'] != studentName) {
+        await Supabase.instance.client.from('students').upsert({
           'id': user.id,
           'full_name': studentName,
           'email': user.email,
@@ -101,6 +135,11 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Your Full Name', prefixIcon: Icon(Icons.person)),
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'Exam Password', prefixIcon: Icon(Icons.lock)),

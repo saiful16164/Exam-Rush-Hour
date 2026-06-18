@@ -53,7 +53,7 @@ class _StudentLoginPageState extends ConsumerState<StudentLoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Welcome back to ExamFlow',
+                  'Welcome back to Exam Rush Hour',
                   style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                   textAlign: TextAlign.center,
                 ),
