@@ -109,11 +109,25 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
 
   Future<void> _pickFromSource(ImageSource source) async {
     final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      final ext = image.path.split('.').last.toLowerCase();
-      ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
+    
+    if (source == ImageSource.gallery) {
+      final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
+      if (images.isNotEmpty) {
+        List<Map<String, dynamic>> files = [];
+        for (var image in images) {
+          final bytes = await image.readAsBytes();
+          final ext = image.path.split('.').last.toLowerCase();
+          files.add({'bytes': bytes, 'ext': ext});
+        }
+        ref.read(writtenAnswersProvider.notifier).addImages(files);
+      }
+    } else {
+      final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        final ext = image.path.split('.').last.toLowerCase();
+        ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
+      }
     }
   }
 
@@ -122,12 +136,19 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
       type: FileType.custom,
       allowedExtensions: ['pdf'],
       withData: true,
+      allowMultiple: true,
     );
-    if (result != null && result.files.single.bytes != null) {
-      ref.read(writtenAnswersProvider.notifier).addImages([{
-        'bytes': result.files.single.bytes, 
-        'ext': 'pdf',
-      }]);
+    if (result != null) {
+      List<Map<String, dynamic>> files = [];
+      for (var file in result.files) {
+        if (file.bytes != null) {
+          files.add({
+            'bytes': file.bytes, 
+            'ext': 'pdf',
+          });
+        }
+      }
+      ref.read(writtenAnswersProvider.notifier).addImages(files);
     }
   }
 

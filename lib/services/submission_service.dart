@@ -120,10 +120,24 @@ class SubmissionService {
     return score;
   }
 
+  Future<List<Map<String, dynamic>>> getMcqResultDetails(String submissionId) async {
+    final response = await _supabase.from('mcq_answers')
+        .select('selected_option, mcq_questions(id, question_text, option_a, option_b, option_c, option_d, correct_option, marks)')
+        .eq('submission_id', submissionId);
+    
+    return (response as List).cast<Map<String, dynamic>>();
+  }
+
   Future<void> updateWrittenMarks(String submissionId, int marks) async {
     await _supabase
         .from('submissions')
         .update({'written_marks': marks})
         .eq('id', submissionId);
+  }
+  Future<void> updateGradedAnswerUrl(String answerId, String url) async {
+    await _supabase
+        .from('written_answers')
+        .update({'graded_image_url': url})
+        .eq('id', answerId);
   }
 }

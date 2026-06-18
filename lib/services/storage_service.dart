@@ -31,4 +31,16 @@ class StorageService {
         .from('written-answers')
         .getPublicUrl(path);
   }
+  Future<String> uploadGradedAnswer(String answerId, Uint8List bytes) async {
+    final fileName = 'graded_$answerId.png';
+    final path = 'graded/$fileName';
+
+    await _supabase.storage
+        .from('written-answers')
+        .uploadBinary(path, bytes, fileOptions: const FileOptions(upsert: true));
+
+    return _supabase.storage
+        .from('written-answers')
+        .getPublicUrl(path);
+  }
 }

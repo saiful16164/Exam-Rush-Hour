@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,8 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../models/submission.dart';
 import '../../services/submission_service.dart';
+import '../../services/storage_service.dart';
+import '../../widgets/drawing_board.dart';
 
 class ResultsPage extends ConsumerStatefulWidget {
   const ResultsPage({super.key});
@@ -67,6 +70,39 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open email app.')));
     }
   }
+  void _openDrawingBoard(BuildContext context, String url, bool isPdf, String answerId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: DrawingBoard(
+              onSave: (Uint8List bytes) async {
+                Navigator.pop(ctx);
+                try {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saving graded copy...')));
+                  final newUrl = await StorageService().uploadGradedAnswer(answerId, bytes);
+                  await SubmissionService().updateGradedAnswerUrl(answerId, newUrl);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Graded copy saved successfully!')));
+                  }
+                } catch (e) {
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+                }
+              },
+              child: isPdf 
+                ? SfPdfViewer.network(url, canShowScrollHead: false, canShowScrollStatus: false)
+                : Image.network(url),
+            )
+          )
+        );
+      }
+    );
+  }
 
   void _viewWrittenAnswers(Submission sub) async {
     // Fetch written answers
@@ -98,21 +134,39 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
                           itemCount: answers.length,
                           itemBuilder: (context, index) {
                             final String url = answers[index]['image_url'];
+                            final String answerId = answers[index]['id'];
                             final bool isPdf = url.toLowerCase().contains('.pdf?t=') || url.toLowerCase().endsWith('.pdf');
                             
+                            Widget contentWidget;
                             if (isPdf) {
-                              return SfPdfViewer.network(url);
+                              contentWidget = SfPdfViewer.network(url);
+                            } else {
+                              contentWidget = InteractiveViewer(
+                                child: Image.network(
+                                  url,
+                                  loadingBuilder: (context, child, progress) {
+                                    if (progress == null) return child;
+                                    return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
+                                  },
+                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                                ),
+                              );
                             }
 
-                            return InteractiveViewer(
-                              child: Image.network(
-                                url,
-                                loadingBuilder: (context, child, progress) {
-                                  if (progress == null) return child;
-                                  return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
-                                },
-                                errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
-                              ),
+                            return Stack(
+                              children: [
+                                Positioned.fill(child: contentWidget),
+                                Positioned(
+                                  top: 16,
+                                  right: 16,
+                                  child: FloatingActionButton.extended(
+                                    heroTag: 'annotate_$index',
+                                    icon: const Icon(Icons.edit),
+                                    label: const Text('Annotate'),
+                                    onPressed: () => _openDrawingBoard(context, url, isPdf, answerId),
+                                  ),
+                                ),
+                              ],
                             );
                           },
                         ),

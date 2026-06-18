@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../models/submission.dart';
 import '../../services/submission_service.dart';
 
@@ -14,6 +16,7 @@ class _StudentResultPageState extends State<StudentResultPage> {
   int? _mcqScore;
   bool _isLoading = true;
   late Submission _currentSubmission;
+  List<Map<String, dynamic>> _mcqDetails = [];
 
   @override
   void initState() {
@@ -26,11 +29,13 @@ class _StudentResultPageState extends State<StudentResultPage> {
     try {
       final updatedSub = await SubmissionService().getStudentSubmission(_currentSubmission.examId, _currentSubmission.studentId!);
       final score = await SubmissionService().getMcqScore(_currentSubmission.id);
+      final mcqDetails = await SubmissionService().getMcqResultDetails(_currentSubmission.id);
       
       if (mounted) {
         setState(() {
           if (updatedSub != null) _currentSubmission = updatedSub;
           _mcqScore = score;
+          _mcqDetails = mcqDetails;
           _isLoading = false;
         });
       }
@@ -39,6 +44,70 @@ class _StudentResultPageState extends State<StudentResultPage> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _viewGradedAnswers() async {
+    final answers = await Supabase.instance.client
+        .from('written_answers')
+        .select()
+        .eq('submission_id', _currentSubmission.id)
+        .order('page_number', ascending: true);
+        
+    if (!mounted) return;
+
+    if (answers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No written answers found.')));
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SizedBox(
+            height: 600,
+            width: double.infinity,
+            child: Column(
+              children: [
+                AppBar(
+                  title: const Text('Your Graded Answers'),
+                  automaticallyImplyLeading: false,
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx))],
+                ),
+                Expanded(
+                  child: PageView.builder(
+                    itemCount: answers.length,
+                    itemBuilder: (context, index) {
+                      final originalUrl = answers[index]['image_url'];
+                      final gradedUrl = answers[index]['graded_image_url'];
+                      final url = gradedUrl ?? originalUrl;
+                      final isPdf = url.toLowerCase().contains('.pdf?t=') || url.toLowerCase().endsWith('.pdf');
+                      
+                      if (isPdf) {
+                        return SfPdfViewer.network(url);
+                      }
+                      return InteractiveViewer(
+                        child: Image.network(
+                          url,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
+                          },
+                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ]
+            )
+          )
+        );
+      }
+    );
   }
 
   @override
@@ -120,11 +189,30 @@ class _StudentResultPageState extends State<StudentResultPage> {
                               ),
                             ],
                           ),
+                          if (_currentSubmission.writtenMarks != null) ...[
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _viewGradedAnswers,
+                              icon: const Icon(Icons.visibility),
+                              label: const Text('View Graded Answers'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1DB954),
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                   ),
                 
+                if (!_isLoading && _mcqDetails.isNotEmpty) ...[
+                  const SizedBox(height: 32),
+                  const Text('MCQ Details', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  ..._mcqDetails.map((detail) => _buildMcqQuestionCard(detail)),
+                ],
+
                 const SizedBox(height: 48),
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -133,6 +221,76 @@ class _StudentResultPageState extends State<StudentResultPage> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMcqQuestionCard(Map<String, dynamic> detail) {
+    final question = detail['mcq_questions'] as Map<String, dynamic>;
+    final selectedOption = detail['selected_option'] as String?;
+    final correctOption = question['correct_option'] as String;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question['question_text'],
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            ...['A', 'B', 'C', 'D'].map((optLetter) {
+              final optKey = 'option_${optLetter.toLowerCase()}';
+              final optValue = question[optKey] as String;
+              final isSelected = selectedOption == optLetter;
+              final isCorrect = correctOption == optLetter;
+              
+              Color bgColor = Colors.transparent;
+              Color borderColor = Colors.grey.shade300;
+              IconData? icon;
+              Color iconColor = Colors.transparent;
+
+              if (isCorrect) {
+                bgColor = const Color(0xFF1DB954).withOpacity(0.1);
+                borderColor = const Color(0xFF1DB954);
+                icon = Icons.check_circle;
+                iconColor = const Color(0xFF1DB954);
+              } else if (isSelected && !isCorrect) {
+                bgColor = Colors.red.withOpacity(0.1);
+                borderColor = Colors.red;
+                icon = Icons.cancel;
+                iconColor = Colors.red;
+              }
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  border: Border.all(color: borderColor, width: isSelected || isCorrect ? 2 : 1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        optValue,
+                        style: TextStyle(
+                          fontWeight: isSelected || isCorrect ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    if (icon != null) Icon(icon, color: iconColor, size: 20),
+                  ],
+                ),
+              );
+            }),
+          ],
         ),
       ),
     );
