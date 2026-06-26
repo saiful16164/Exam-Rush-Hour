@@ -43,4 +43,23 @@ class StorageService {
         .from('written-answers')
         .getPublicUrl(path);
   }
+
+  /// Deletes a file from storage given its full public URL.
+  Future<void> deleteFileByUrl(String publicUrl) async {
+    // Public URLs have the format: .../storage/v1/object/public/<bucket>/<path>
+    final uri = Uri.parse(publicUrl);
+    final segments = uri.pathSegments;
+
+    // Find 'public' segment, bucket is next, rest is the path
+    final publicIndex = segments.indexOf('public');
+    if (publicIndex < 0 || publicIndex + 1 >= segments.length) return;
+
+    final bucket = segments[publicIndex + 1];
+    final filePath = segments.sublist(publicIndex + 2).join('/');
+
+    if (filePath.isNotEmpty) {
+      await _supabase.storage.from(bucket).remove([filePath]);
+    }
+  }
 }
+

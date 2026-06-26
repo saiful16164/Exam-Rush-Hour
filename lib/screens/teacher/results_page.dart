@@ -48,6 +48,54 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
     }
   }
 
+  Future<void> _deleteSubmission(Submission sub) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Submission'),
+        content: Text(
+          'Are you sure you want to delete the submission from "${sub.studentName}"?\n\nThis will permanently remove all their answers and marks.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Deleting submission...')),
+        );
+        await SubmissionService().deleteSubmission(sub.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Submission deleted successfully.')),
+          );
+          _loadSubmissions();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<int> _getMcqScore(String submissionId) async {
     return await SubmissionService().getMcqScore(submissionId);
   }
@@ -298,6 +346,13 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
+                                IconButton(
+                                  onPressed: () => _deleteSubmission(sub),
+                                  icon: const Icon(Icons.delete_outline),
+                                  color: Colors.red,
+                                  tooltip: 'Delete Submission',
+                                ),
+                                const Spacer(),
                                 OutlinedButton.icon(
                                   onPressed: () => _emailMarks(sub, mcqScore),
                                   icon: const Icon(Icons.email, size: 18),

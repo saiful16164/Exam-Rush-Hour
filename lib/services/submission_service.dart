@@ -140,4 +140,34 @@ class SubmissionService {
         .update({'graded_image_url': url})
         .eq('id', answerId);
   }
+
+  /// Deletes a submission and all related data (mcq_answers, written_answers cascade via DB).
+  /// Also cleans up any uploaded files in storage.
+  Future<void> deleteSubmission(String submissionId) async {
+    // First, fetch written answers to delete their storage files
+    final writtenAnswers = await _supabase
+        .from('written_answers')
+        .select('image_url, graded_image_url')
+        .eq('submission_id', submissionId);
+
+    // Delete storage files
+    final storage = StorageService();
+    for (final answer in writtenAnswers as List) {
+      try {
+        final imageUrl = answer['image_url'] as String?;
+        if (imageUrl != null) {
+          await storage.deleteFileByUrl(imageUrl);
+        }
+        final gradedUrl = answer['graded_image_url'] as String?;
+        if (gradedUrl != null) {
+          await storage.deleteFileByUrl(gradedUrl);
+        }
+      } catch (_) {
+        // Continue even if storage cleanup fails
+      }
+    }
+
+    // Delete the submission (cascades to mcq_answers and written_answers)
+    await _supabase.from('submissions').delete().eq('id', submissionId);
+  }
 }
