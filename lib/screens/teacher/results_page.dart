@@ -410,12 +410,33 @@ class _WrittenAnswersDialogState extends State<_WrittenAnswersDialog> {
                           final String? gradedUrl = _answers[index]['graded_image_url'];
                           final String displayUrl = gradedUrl ?? originalUrl;
                           final String answerId = _answers[index]['id'];
-                          final bool isPdf = displayUrl.toLowerCase().contains('.pdf?t=') ||
-                              displayUrl.toLowerCase().endsWith('.pdf');
+                          final bool originalIsPdf = originalUrl.toLowerCase().contains('.pdf') ||
+                              originalUrl.toLowerCase().endsWith('.pdf');
                           final int quarterTurns = _rotationMap[index] ?? 0;
 
                           Widget contentWidget;
-                          if (isPdf) {
+                          if (gradedUrl != null) {
+                            // Graded copy is always saved as a PNG image
+                            contentWidget = InteractiveViewer(
+                              child: RotatedBox(
+                                quarterTurns: quarterTurns,
+                                child: Image.network(
+                                  displayUrl,
+                                  key: ValueKey(displayUrl),
+                                  loadingBuilder: (context, child, progress) {
+                                    if (progress == null) return child;
+                                    return const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF1DB954),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(Icons.error),
+                                ),
+                              ),
+                            );
+                          } else if (originalIsPdf) {
                             contentWidget = SfPdfViewer.network(displayUrl);
                           } else {
                             contentWidget = InteractiveViewer(
@@ -476,7 +497,7 @@ class _WrittenAnswersDialogState extends State<_WrittenAnswersDialog> {
                                         final newGradedUrl = await widget.openDrawingBoard(
                                           context,
                                           originalUrl,
-                                          isPdf,
+                                          originalIsPdf,
                                           answerId,
                                           initialRotation: quarterTurns,
                                         );
@@ -489,7 +510,7 @@ class _WrittenAnswersDialogState extends State<_WrittenAnswersDialog> {
                                         }
                                       },
                                     ),
-                                    if (!isPdf) ...[
+                                    if (!originalIsPdf) ...[
                                       const SizedBox(height: 10),
                                       FloatingActionButton.extended(
                                         heroTag: 'rotate_$index',
