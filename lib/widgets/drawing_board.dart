@@ -1,3 +1,4 @@
+
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -6,11 +7,13 @@ import 'package:flutter/rendering.dart';
 class DrawingBoard extends StatefulWidget {
   final Widget child;
   final Function(Uint8List) onSave;
+  final int initialRotation;
 
   const DrawingBoard({
     super.key,
     required this.child,
     required this.onSave,
+    this.initialRotation = 0,
   });
 
   @override
@@ -22,21 +25,33 @@ class _DrawingBoardState extends State<DrawingBoard> {
   DrawnPath? _currentPath;
   Color _currentColor = Colors.red;
   double _currentStrokeWidth = 4.0;
+  late int _quarterTurns;
+  bool _isZoomMode = false;
   final GlobalKey _globalKey = GlobalKey();
+  final TransformationController _transformController = TransformationController();
+
+  @override
+  void initState() {
+    super.initState();
+    _quarterTurns = widget.initialRotation;
+  }
 
   void _onPanStart(DragStartDetails details) {
+    if (_isZoomMode) return;
     setState(() {
       _currentPath = DrawnPath([details.localPosition], _currentColor, _currentStrokeWidth);
     });
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
+    if (_isZoomMode) return;
     setState(() {
       _currentPath?.points.add(details.localPosition);
     });
   }
 
   void _onPanEnd(DragEndDetails details) {
+    if (_isZoomMode) return;
     if (_currentPath != null) {
       setState(() {
         _paths.add(_currentPath!);
@@ -46,6 +61,10 @@ class _DrawingBoardState extends State<DrawingBoard> {
   }
 
   Future<void> _saveDrawing() async {
+    // Reset zoom before saving so the full image is captured
+    final savedTransform = _transformController.value.clone();
+    _transformController.value = Matrix4.identity();
+    await Future.delayed(const Duration(milliseconds: 200));
     try {
       RenderRepaintBoundary boundary = _globalKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
       ui.Image image = await boundary.toImage(pixelRatio: 2.0);
@@ -55,6 +74,9 @@ class _DrawingBoardState extends State<DrawingBoard> {
       }
     } catch (e) {
       debugPrint("Error saving drawing: $e");
+    } finally {
+      // Restore zoom
+      _transformController.value = savedTransform;
     }
   }
 
@@ -67,6 +89,12 @@ class _DrawingBoardState extends State<DrawingBoard> {
   }
 
   @override
+  void dispose() {
+    _transformController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       children: [
@@ -76,12 +104,47 @@ class _DrawingBoardState extends State<DrawingBoard> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Draw / Zoom toggle
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildModeButton(
+                      icon: Icons.edit,
+                      label: 'Draw',
+                      isActive: !_isZoomMode,
+                      onTap: () => setState(() => _isZoomMode = false),
+                    ),
+                    _buildModeButton(
+                      icon: Icons.zoom_in,
+                      label: 'Zoom',
+                      isActive: _isZoomMode,
+                      onTap: () => setState(() => _isZoomMode = true),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
               IconButton(
                 icon: const Icon(Icons.undo),
                 onPressed: _paths.isNotEmpty ? _undo : null,
                 tooltip: 'Undo',
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.rotate_right),
+                onPressed: () {
+                  setState(() {
+                    _quarterTurns = (_quarterTurns + 1) % 4;
+                  });
+                },
+                tooltip: 'Rotate 90°',
+              ),
+              const SizedBox(width: 12),
               _buildColorButton(Colors.red),
               _buildColorButton(Colors.green),
               _buildColorButton(Colors.blue),
@@ -96,26 +159,71 @@ class _DrawingBoardState extends State<DrawingBoard> {
           ),
         ),
         Expanded(
-          child: RepaintBoundary(
-            key: _globalKey,
-            child: GestureDetector(
-              onPanStart: _onPanStart,
-              onPanUpdate: _onPanUpdate,
-              onPanEnd: _onPanEnd,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  widget.child,
-                  CustomPaint(
-                    painter: DrawingPainter(_paths, _currentPath),
-                    size: Size.infinite,
+          child: InteractiveViewer(
+            transformationController: _transformController,
+            panEnabled: _isZoomMode,
+            scaleEnabled: _isZoomMode,
+            minScale: 0.5,
+            maxScale: 5.0,
+            child: RepaintBoundary(
+              key: _globalKey,
+              child: RotatedBox(
+                quarterTurns: _quarterTurns,
+                child: GestureDetector(
+                  onPanStart: _isZoomMode ? null : _onPanStart,
+                  onPanUpdate: _isZoomMode ? null : _onPanUpdate,
+                  onPanEnd: _isZoomMode ? null : _onPanEnd,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      widget.child,
+                      CustomPaint(
+                        painter: DrawingPainter(_paths, _currentPath),
+                        size: Size.infinite,
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildModeButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: isActive
+              ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2)]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: isActive ? Colors.black : Colors.grey[600]),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: isActive ? Colors.black : Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

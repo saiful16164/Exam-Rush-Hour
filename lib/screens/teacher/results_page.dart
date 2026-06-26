@@ -1,6 +1,5 @@
-import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -119,8 +118,9 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open email app.')));
     }
   }
-  void _openDrawingBoard(BuildContext context, String url, bool isPdf, String answerId) {
-    showDialog(
+  Future<String?> _openDrawingBoard(BuildContext context, String url, bool isPdf, String answerId, {int initialRotation = 0}) async {
+    String? gradedUrl;
+    await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
@@ -130,16 +130,19 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
             width: 800,
             height: 600,
             child: DrawingBoard(
+              initialRotation: initialRotation,
               onSave: (Uint8List bytes) async {
-                Navigator.pop(ctx);
                 try {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saving graded copy...')));
                   final newUrl = await StorageService().uploadGradedAnswer(answerId, bytes);
                   await SubmissionService().updateGradedAnswerUrl(answerId, newUrl);
+                  gradedUrl = newUrl;
+                  if (ctx.mounted) Navigator.pop(ctx);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Graded copy saved successfully!')));
                   }
                 } catch (e) {
+                  if (ctx.mounted) Navigator.pop(ctx);
                   if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
                 }
               },
@@ -151,6 +154,7 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
         );
       }
     );
+    return gradedUrl;
   }
 
   void _viewWrittenAnswers(Submission sub) async {
@@ -158,138 +162,28 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
     final answers = await _supabase.from('written_answers').select().eq('submission_id', sub.id).order('page_number', ascending: true);
 
     if (mounted) {
-      final marksController = TextEditingController(text: sub.writtenMarks?.toString() ?? '');
+      // Make a mutable copy so we can update graded URLs in-place
+      final mutableAnswers = List<Map<String, dynamic>>.from(
+        (answers as List).map((a) {
+          final map = Map<String, dynamic>.from(a);
+          if (map['graded_image_url'] != null) {
+            // Append cache buster to existing graded image urls so we always see the latest
+            map['graded_image_url'] = '${map['graded_image_url']}?t=${DateTime.now().millisecondsSinceEpoch}';
+          }
+          return map;
+        }),
+      );
+      
       showDialog(
         context: context,
         builder: (ctx) {
-          // Track rotation per page (in quarter turns: 0, 1, 2, 3)
-          final Map<int, int> rotationMap = {};
-          return StatefulBuilder(
-            builder: (ctx, setDialogState) {
-              return Dialog(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: SizedBox(
-                  height: 600,
-                  width: double.infinity,
-                  child: Column(
-                    children: [
-                      AppBar(
-                        title: const Text('Written Answers'),
-                        automaticallyImplyLeading: false,
-                        backgroundColor: Colors.transparent,
-                        elevation: 0,
-                        actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx))],
-                      ),
-                      Expanded(
-                        child: answers.isEmpty
-                          ? const Center(child: Text('No written answers uploaded.', style: TextStyle(color: Colors.grey)))
-                          : PageView.builder(
-                              itemCount: answers.length,
-                              itemBuilder: (context, index) {
-                                final String url = answers[index]['image_url'];
-                                final String answerId = answers[index]['id'];
-                                final bool isPdf = url.toLowerCase().contains('.pdf?t=') || url.toLowerCase().endsWith('.pdf');
-                                final int quarterTurns = rotationMap[index] ?? 0;
-                                
-                                Widget contentWidget;
-                                if (isPdf) {
-                                  contentWidget = SfPdfViewer.network(url);
-                                } else {
-                                  contentWidget = InteractiveViewer(
-                                    child: Transform.rotate(
-                                      angle: quarterTurns * math.pi / 2,
-                                      child: Image.network(
-                                        url,
-                                        loadingBuilder: (context, child, progress) {
-                                          if (progress == null) return child;
-                                          return const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954)));
-                                        },
-                                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.error),
-                                      ),
-                                    ),
-                                  );
-                                }
-
-                                return Stack(
-                                  children: [
-                                    Positioned.fill(child: contentWidget),
-                                    Positioned(
-                                      top: 16,
-                                      right: 16,
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          FloatingActionButton.extended(
-                                            heroTag: 'annotate_$index',
-                                            icon: const Icon(Icons.edit),
-                                            label: const Text('Annotate'),
-                                            onPressed: () => _openDrawingBoard(context, url, isPdf, answerId),
-                                          ),
-                                          if (!isPdf) ...[
-                                            const SizedBox(height: 10),
-                                            FloatingActionButton.extended(
-                                              heroTag: 'rotate_$index',
-                                              icon: const Icon(Icons.rotate_right),
-                                              label: const Text('Rotate'),
-                                              backgroundColor: Colors.blueGrey[700],
-                                              onPressed: () {
-                                                setDialogState(() {
-                                                  rotationMap[index] = ((rotationMap[index] ?? 0) + 1) % 4;
-                                                });
-                                              },
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                      ),
-                      if (answers.isNotEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text('Swipe to see next pages', style: TextStyle(color: Colors.grey)),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: marksController,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'Marks',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            ElevatedButton(
-                              onPressed: () async {
-                                final marks = int.tryParse(marksController.text);
-                                if (marks != null) {
-                                  await SubmissionService().updateWrittenMarks(sub.id, marks);
-                                  if (!ctx.mounted) return;
-                                  Navigator.pop(ctx);
-                                  if (!mounted) return;
-                                  _loadSubmissions();
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marks saved')));
-                                }
-                              },
-                              child: const Text('Save Marks'),
-                            )
-                          ],
-                        ),
-                      )
-                    ],
-                  ),
-                )
-              );
-            },
+          return _WrittenAnswersDialog(
+            submission: sub,
+            initialAnswers: mutableAnswers,
+            openDrawingBoard: _openDrawingBoard,
+            onSaveMarks: _loadSubmissions,
           );
-        }
+        },
       );
     }
   }
@@ -404,6 +298,264 @@ class _ResultsPageState extends ConsumerState<ResultsPage> {
                 );
               },
             ),
+    );
+  }
+}
+
+class _WrittenAnswersDialog extends StatefulWidget {
+  final Submission submission;
+  final List<Map<String, dynamic>> initialAnswers;
+  final Future<String?> Function(BuildContext, String, bool, String, {int initialRotation}) openDrawingBoard;
+  final VoidCallback onSaveMarks;
+
+  const _WrittenAnswersDialog({
+    required this.submission,
+    required this.initialAnswers,
+    required this.openDrawingBoard,
+    required this.onSaveMarks,
+  });
+
+  @override
+  State<_WrittenAnswersDialog> createState() => _WrittenAnswersDialogState();
+}
+
+class _WrittenAnswersDialogState extends State<_WrittenAnswersDialog> {
+  late final PageController _pageController;
+  late final List<Map<String, dynamic>> _answers;
+  late final TextEditingController _marksController;
+  final FocusNode _focusNode = FocusNode();
+  final FocusNode _marksFocusNode = FocusNode();
+  final Map<int, int> _rotationMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _answers = List<Map<String, dynamic>>.from(widget.initialAnswers);
+    _marksController = TextEditingController(text: widget.submission.writtenMarks?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _marksController.dispose();
+    _focusNode.dispose();
+    _marksFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SizedBox(
+        height: 600,
+        width: double.infinity,
+        child: Focus(
+          focusNode: _focusNode,
+          autofocus: true,
+          onKeyEvent: (FocusNode node, KeyEvent event) {
+            // If user is focused on the marks text field, don't change pages with arrow keys
+            if (_marksFocusNode.hasFocus) {
+              return KeyEventResult.ignored;
+            }
+            if (event is KeyDownEvent) {
+              if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                if (_pageController.hasClients) {
+                  _pageController.nextPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                }
+                return KeyEventResult.handled;
+              } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                if (_pageController.hasClients) {
+                  _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                }
+                return KeyEventResult.handled;
+              }
+            }
+            return KeyEventResult.ignored;
+          },
+          child: Column(
+            children: [
+              AppBar(
+                title: const Text('Written Answers'),
+                automaticallyImplyLeading: false,
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  )
+                ],
+              ),
+              Expanded(
+                child: _answers.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No written answers uploaded.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : PageView.builder(
+                        controller: _pageController,
+                        itemCount: _answers.length,
+                        itemBuilder: (context, index) {
+                          final String originalUrl = _answers[index]['image_url'];
+                          final String? gradedUrl = _answers[index]['graded_image_url'];
+                          final String displayUrl = gradedUrl ?? originalUrl;
+                          final String answerId = _answers[index]['id'];
+                          final bool isPdf = displayUrl.toLowerCase().contains('.pdf?t=') ||
+                              displayUrl.toLowerCase().endsWith('.pdf');
+                          final int quarterTurns = _rotationMap[index] ?? 0;
+
+                          Widget contentWidget;
+                          if (isPdf) {
+                            contentWidget = SfPdfViewer.network(displayUrl);
+                          } else {
+                            contentWidget = InteractiveViewer(
+                              child: RotatedBox(
+                                quarterTurns: quarterTurns,
+                                child: Image.network(
+                                  displayUrl,
+                                  key: ValueKey(displayUrl),
+                                  loadingBuilder: (context, child, progress) {
+                                    if (progress == null) return child;
+                                    return const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF1DB954),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(Icons.error),
+                                ),
+                              ),
+                            );
+                          }
+
+                          return Stack(
+                            children: [
+                              Positioned.fill(child: contentWidget),
+                              if (gradedUrl != null)
+                                Positioned(
+                                  top: 16,
+                                  left: 16,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      'Graded',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              Positioned(
+                                top: 16,
+                                right: 16,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    FloatingActionButton.extended(
+                                      heroTag: 'annotate_$index',
+                                      icon: const Icon(Icons.edit),
+                                      label: Text(gradedUrl != null ? 'Re-Annotate' : 'Annotate'),
+                                      onPressed: () async {
+                                        final newGradedUrl = await widget.openDrawingBoard(
+                                          context,
+                                          originalUrl,
+                                          isPdf,
+                                          answerId,
+                                          initialRotation: quarterTurns,
+                                        );
+                                        if (newGradedUrl != null) {
+                                          setState(() {
+                                            _answers[index]['graded_image_url'] =
+                                                '$newGradedUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+                                            _rotationMap[index] = 0;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                    if (!isPdf) ...[
+                                      const SizedBox(height: 10),
+                                      FloatingActionButton.extended(
+                                        heroTag: 'rotate_$index',
+                                        icon: const Icon(Icons.rotate_right),
+                                        label: const Text('Rotate'),
+                                        backgroundColor: Colors.blueGrey[700],
+                                        onPressed: () {
+                                          setState(() {
+                                            _rotationMap[index] = ((_rotationMap[index] ?? 0) + 1) % 4;
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+              if (_answers.isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Text(
+                    'Swipe or use Left/Right arrows to see next pages',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _marksController,
+                        focusNode: _marksFocusNode,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Marks',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final marks = int.tryParse(_marksController.text);
+                        if (marks != null) {
+                          await SubmissionService().updateWrittenMarks(widget.submission.id, marks);
+                          if (!context.mounted) return;
+                          Navigator.pop(context);
+                          widget.onSaveMarks();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Marks saved')),
+                          );
+                        }
+                      },
+                      child: const Text('Save Marks'),
+                    )
+                  ],
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
