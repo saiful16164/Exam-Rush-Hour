@@ -85,102 +85,24 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
     }
   }
 
-  Future<void> _pickImage() async {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext ctx) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Take a Photo'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _pickFromSource(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Choose from Gallery'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _pickFromSource(ImageSource.gallery);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.picture_as_pdf),
-                title: const Text('Upload PDF'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _pickPdf();
-                },
-              ),
-            ],
-          ),
-        );
-      }
-    );
-  }
-
-  Future<void> _pickFromSource(ImageSource source) async {
+  Future<void> _pickFromGallery() async {
     final ImagePicker picker = ImagePicker();
     
     try {
-      if (source == ImageSource.gallery) {
-        final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
-        if (images.isNotEmpty) {
-          setState(() => _isProcessingFile = true);
-          List<Map<String, dynamic>> files = [];
-          for (var image in images) {
-            final bytes = await image.readAsBytes();
-            final ext = image.path.split('.').last.toLowerCase();
-            files.add({'bytes': bytes, 'ext': ext});
-          }
-          ref.read(writtenAnswersProvider.notifier).addImages(files);
-        }
-      } else {
-        final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
-        if (image != null) {
-          setState(() => _isProcessingFile = true);
-          final bytes = await image.readAsBytes();
-          final ext = image.path.split('.').last.toLowerCase();
-          ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting file: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessingFile = false);
-    }
-  }
-
-  Future<void> _pickPdf() async {
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        withData: true,
-        allowMultiple: true,
-      );
-      if (result != null) {
+      final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
+      if (images.isNotEmpty) {
         setState(() => _isProcessingFile = true);
         List<Map<String, dynamic>> files = [];
-        for (var file in result.files) {
-          if (file.bytes != null) {
-            files.add({
-              'bytes': file.bytes, 
-              'ext': 'pdf',
-            });
-          }
+        for (var image in images) {
+          final bytes = await image.readAsBytes();
+          final ext = image.path.split('.').last.toLowerCase();
+          files.add({'bytes': bytes, 'ext': ext});
         }
         ref.read(writtenAnswersProvider.notifier).addImages(files);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting PDF: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting images: $e')));
       }
     } finally {
       if (mounted) setState(() => _isProcessingFile = false);
@@ -315,9 +237,9 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
                           ElevatedButton.icon(
                             icon: _isProcessingFile 
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.upload_file),
-                            label: Text(_isProcessingFile ? 'Loading file...' : 'Upload Answer'),
-                            onPressed: _isProcessingFile ? null : _pickImage,
+                              : const Icon(Icons.photo_library),
+                            label: Text(_isProcessingFile ? 'Loading...' : 'Upload Answer'),
+                            onPressed: _isProcessingFile ? null : _pickFromGallery,
                           )
                         ],
                       ),
