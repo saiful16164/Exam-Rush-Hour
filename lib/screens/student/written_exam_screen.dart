@@ -32,6 +32,7 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
   Uint8List? _pdfBytes;
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _isProcessingFile = false;
 
   @override
   void didChangeDependencies() {
@@ -125,45 +126,64 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
   Future<void> _pickFromSource(ImageSource source) async {
     final ImagePicker picker = ImagePicker();
     
-    if (source == ImageSource.gallery) {
-      final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
-      if (images.isNotEmpty) {
-        List<Map<String, dynamic>> files = [];
-        for (var image in images) {
+    try {
+      if (source == ImageSource.gallery) {
+        final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
+        if (images.isNotEmpty) {
+          setState(() => _isProcessingFile = true);
+          List<Map<String, dynamic>> files = [];
+          for (var image in images) {
+            final bytes = await image.readAsBytes();
+            final ext = image.path.split('.').last.toLowerCase();
+            files.add({'bytes': bytes, 'ext': ext});
+          }
+          ref.read(writtenAnswersProvider.notifier).addImages(files);
+        }
+      } else {
+        final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
+        if (image != null) {
+          setState(() => _isProcessingFile = true);
           final bytes = await image.readAsBytes();
           final ext = image.path.split('.').last.toLowerCase();
-          files.add({'bytes': bytes, 'ext': ext});
+          ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
         }
-        ref.read(writtenAnswersProvider.notifier).addImages(files);
       }
-    } else {
-      final XFile? image = await picker.pickImage(source: source, imageQuality: 70);
-      if (image != null) {
-        final bytes = await image.readAsBytes();
-        final ext = image.path.split('.').last.toLowerCase();
-        ref.read(writtenAnswersProvider.notifier).addImages([{'bytes': bytes, 'ext': ext}]);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting file: $e')));
       }
+    } finally {
+      if (mounted) setState(() => _isProcessingFile = false);
     }
   }
 
   Future<void> _pickPdf() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-      withData: true,
-      allowMultiple: true,
-    );
-    if (result != null) {
-      List<Map<String, dynamic>> files = [];
-      for (var file in result.files) {
-        if (file.bytes != null) {
-          files.add({
-            'bytes': file.bytes, 
-            'ext': 'pdf',
-          });
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+        allowMultiple: true,
+      );
+      if (result != null) {
+        setState(() => _isProcessingFile = true);
+        List<Map<String, dynamic>> files = [];
+        for (var file in result.files) {
+          if (file.bytes != null) {
+            files.add({
+              'bytes': file.bytes, 
+              'ext': 'pdf',
+            });
+          }
         }
+        ref.read(writtenAnswersProvider.notifier).addImages(files);
       }
-      ref.read(writtenAnswersProvider.notifier).addImages(files);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting PDF: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessingFile = false);
     }
   }
 
@@ -293,66 +313,100 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
                         children: [
                           const Text('Your Answer Sheets:', style: TextStyle(fontWeight: FontWeight.bold)),
                           ElevatedButton.icon(
-                            icon: const Icon(Icons.upload_file),
-                            label: const Text('Upload Answer'),
-                            onPressed: _pickImage,
+                            icon: _isProcessingFile 
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.upload_file),
+                            label: Text(_isProcessingFile ? 'Loading file...' : 'Upload Answer'),
+                            onPressed: _isProcessingFile ? null : _pickImage,
                           )
                         ],
                       ),
                     ),
                     Expanded(
-                      child: answerPages.isEmpty
-                        ? const Center(child: Text('No pages captured yet.'))
-                        : ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: answerPages.length,
-                            itemBuilder: (ctx, idx) {
-                              final isPdf = answerPages[idx]['ext'] == 'pdf';
-                              return Stack(
-                                children: [
-                                  Container(
+                      child: _isProcessingFile && answerPages.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 12),
+                                Text('Processing file... Please wait.'),
+                              ],
+                            ),
+                          )
+                        : answerPages.isEmpty
+                          ? const Center(child: Text('No pages captured yet.'))
+                          : ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: answerPages.length + (_isProcessingFile ? 1 : 0),
+                              itemBuilder: (ctx, idx) {
+                                if (idx == answerPages.length) {
+                                  return Container(
                                     margin: const EdgeInsets.all(8),
                                     width: 120,
                                     decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.grey),
-                                      color: isPdf ? Colors.red.shade50 : null,
-                                      image: isPdf ? null : DecorationImage(
-                                        image: MemoryImage(answerPages[idx]['bytes'] as Uint8List),
-                                        fit: BoxFit.cover,
-                                      )
+                                      border: Border.all(color: Colors.grey.shade300),
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    child: isPdf 
-                                        ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.picture_as_pdf, size: 40, color: Colors.red), SizedBox(height: 8), Text('PDF Document', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))]))
-                                        : null,
-                                  ),
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: IconButton(
-                                      icon: const Icon(Icons.remove_circle, color: Colors.red),
-                                      onPressed: () => ref.read(writtenAnswersProvider.notifier).removeImage(idx),
+                                    child: const Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          CircularProgressIndicator(strokeWidth: 2),
+                                          SizedBox(height: 8),
+                                          Text('Adding file...', style: TextStyle(fontSize: 11)),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  Positioned(
-                                    bottom: 12,
-                                    left: 12,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      color: Colors.black54,
-                                      child: Text('Page ${idx+1}', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                  );
+                                }
+                                final isPdf = answerPages[idx]['ext'] == 'pdf';
+                                return Stack(
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.all(8),
+                                      width: 120,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey),
+                                        color: isPdf ? Colors.red.shade50 : null,
+                                        image: isPdf ? null : DecorationImage(
+                                          image: MemoryImage(answerPages[idx]['bytes'] as Uint8List),
+                                          fit: BoxFit.cover,
+                                        )
+                                      ),
+                                      child: isPdf 
+                                          ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.picture_as_pdf, size: 40, color: Colors.red), SizedBox(height: 8), Text('PDF Document', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))]))
+                                          : null,
                                     ),
-                                  )
-                                ],
-                              );
-                            }
-                          ),
+                                    Positioned(
+                                      top: 0,
+                                      right: 0,
+                                      child: IconButton(
+                                        icon: const Icon(Icons.remove_circle, color: Colors.red),
+                                        onPressed: () => ref.read(writtenAnswersProvider.notifier).removeImage(idx),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      bottom: 12,
+                                      left: 12,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        color: Colors.black54,
+                                        child: Text('Page ${idx+1}', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                      ),
+                                    )
+                                  ],
+                                );
+                              }
+                            ),
                     ),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
-                        onPressed: answerPages.isEmpty ? null : _submitWritten,
+                        onPressed: (answerPages.isEmpty || _isProcessingFile) ? null : _submitWritten,
                         child: const Text('Submit Written Answers'),
                       ),
                     )
