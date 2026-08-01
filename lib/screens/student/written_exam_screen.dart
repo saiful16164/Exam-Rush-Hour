@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/exam.dart';
 import '../../models/written_question.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/exam_provider.dart';
 import '../../providers/written_state_provider.dart';
 import '../../services/exam_service.dart';
@@ -59,6 +60,20 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
           }
         }
         ref.read(writtenTimerProvider.notifier).startTimer(_exam!.writtenTimeMinutes);
+
+        var currentSubId = ref.read(currentSubmissionIdProvider);
+        if (currentSubId.isEmpty) {
+          final user = ref.read(authProvider);
+          if (user != null) {
+            final studentName = ref.read(studentNameProvider);
+            currentSubId = await SubmissionService().getOrCreateSubmission(
+              _exam!.id,
+              user.id,
+              studentName.isNotEmpty ? studentName : (user.email ?? 'Unknown Student'),
+            );
+            ref.read(currentSubmissionIdProvider.notifier).state = currentSubId;
+          }
+        }
       }
       setState(() => _isLoading = false);
     } catch (e) {
@@ -158,7 +173,24 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
     ref.read(writtenTimerProvider.notifier).stopTimer();
 
     try {
-      final submissionId = ref.read(currentSubmissionIdProvider);
+      var submissionId = ref.read(currentSubmissionIdProvider);
+      if (submissionId.isEmpty && _exam != null) {
+        final user = ref.read(authProvider);
+        if (user != null) {
+          final studentName = ref.read(studentNameProvider);
+          submissionId = await SubmissionService().getOrCreateSubmission(
+            _exam!.id,
+            user.id,
+            studentName.isNotEmpty ? studentName : (user.email ?? 'Unknown Student'),
+          );
+          ref.read(currentSubmissionIdProvider.notifier).state = submissionId;
+        }
+      }
+
+      if (submissionId.isEmpty) {
+        throw Exception('Could not determine submission ID. Please try joining the exam again.');
+      }
+
       final pages = ref.read(writtenAnswersProvider);
 
       await SubmissionService().submitWrittenAnswers(submissionId, pages);

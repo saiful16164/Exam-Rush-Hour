@@ -16,6 +16,14 @@ class SubmissionService {
     return response['id'];
   }
 
+  Future<String> getOrCreateSubmission(String examId, String studentId, String studentName) async {
+    final existing = await getStudentSubmission(examId, studentId);
+    if (existing != null) {
+      return existing.id;
+    }
+    return await createSubmission(examId, studentId, studentName);
+  }
+
   Future<List<Submission>> getSubmissionsForStudent(String studentId) async {
     final response = await _supabase
         .from('submissions')
@@ -26,15 +34,19 @@ class SubmissionService {
   }
 
   Future<void> submitMcqAnswers(String submissionId, Map<String, String> answers) async {
-    if (answers.isEmpty) return;
+    if (submissionId.isEmpty) {
+      throw Exception('Invalid submission ID. Please re-enter the exam.');
+    }
 
-    final List<Map<String, dynamic>> payload = answers.entries.map((e) => {
-      'submission_id': submissionId,
-      'question_id': e.key,
-      'selected_option': e.value,
-    }).toList();
+    if (answers.isNotEmpty) {
+      final List<Map<String, dynamic>> payload = answers.entries.map((e) => {
+        'submission_id': submissionId,
+        'question_id': e.key,
+        'selected_option': e.value,
+      }).toList();
 
-    await _supabase.from('mcq_answers').insert(payload);
+      await _supabase.from('mcq_answers').insert(payload);
+    }
 
     // Calculate score and store it immediately
     final score = await getMcqScore(submissionId);
@@ -50,6 +62,9 @@ class SubmissionService {
   }
 
   Future<void> submitWrittenAnswers(String submissionId, List<dynamic> pages) async {
+    if (submissionId.isEmpty) {
+      throw Exception('Invalid submission ID. Please re-enter the exam.');
+    }
 
     final storage = StorageService();
     for (int i = 0; i < pages.length; i++) {

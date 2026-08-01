@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:async';
 import '../../models/exam.dart';
 import '../../models/mcq_question.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/exam_provider.dart';
 import '../../providers/mcq_state_provider.dart';
 import '../../services/exam_service.dart';
@@ -42,6 +43,20 @@ class _McqExamScreenState extends ConsumerState<McqExamScreen> {
       if (_exam != null) {
         _questions = await examService.getMcqQuestions(_exam!.id);
         ref.read(mcqTimerProvider.notifier).startTimer(_exam!.mcqTimeMinutes);
+
+        var currentSubId = ref.read(currentSubmissionIdProvider);
+        if (currentSubId.isEmpty) {
+          final user = ref.read(authProvider);
+          if (user != null) {
+            final studentName = ref.read(studentNameProvider);
+            currentSubId = await SubmissionService().getOrCreateSubmission(
+              _exam!.id,
+              user.id,
+              studentName.isNotEmpty ? studentName : (user.email ?? 'Unknown Student'),
+            );
+            ref.read(currentSubmissionIdProvider.notifier).state = currentSubId;
+          }
+        }
       }
       setState(() => _isLoading = false);
     } catch (e) {
@@ -58,7 +73,24 @@ class _McqExamScreenState extends ConsumerState<McqExamScreen> {
     ref.read(mcqTimerProvider.notifier).stopTimer();
 
     try {
-      final submissionId = ref.read(currentSubmissionIdProvider);
+      var submissionId = ref.read(currentSubmissionIdProvider);
+      if (submissionId.isEmpty && _exam != null) {
+        final user = ref.read(authProvider);
+        if (user != null) {
+          final studentName = ref.read(studentNameProvider);
+          submissionId = await SubmissionService().getOrCreateSubmission(
+            _exam!.id,
+            user.id,
+            studentName.isNotEmpty ? studentName : (user.email ?? 'Unknown Student'),
+          );
+          ref.read(currentSubmissionIdProvider.notifier).state = submissionId;
+        }
+      }
+
+      if (submissionId.isEmpty) {
+        throw Exception('Could not determine submission ID. Please try joining the exam again.');
+      }
+
       final answers = ref.read(mcqAnswersProvider);
 
       await SubmissionService().submitMcqAnswers(submissionId, answers);

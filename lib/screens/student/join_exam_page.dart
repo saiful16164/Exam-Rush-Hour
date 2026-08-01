@@ -65,14 +65,11 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
       if (exam.password != _passwordController.text) throw Exception('Incorrect password');
 
       final submissionService = SubmissionService();
-      final hasSubmitted = await submissionService.hasStudentSubmitted(exam.id, user.id);
-      if (hasSubmitted) {
-        final submission = await submissionService.getStudentSubmission(exam.id, user.id);
-        if (submission != null && mounted) {
-          context.push('/student/result', extra: submission);
+      final existingSubmission = await submissionService.getStudentSubmission(exam.id, user.id);
+      if (existingSubmission != null && (existingSubmission.mcqMarks != null || existingSubmission.writtenMarks != null)) {
+        if (mounted) {
+          context.push('/student/result', extra: existingSubmission);
           return;
-        } else {
-          throw Exception('You have already submitted this exam, but your submission could not be loaded.');
         }
       }
 
@@ -99,8 +96,8 @@ class _JoinExamPageState extends ConsumerState<JoinExamPage> {
         });
       }
 
-      // Create submission record immediately
-      final subId = await submissionService.createSubmission(exam.id, user.id, studentName);
+      // Get existing or create new submission record
+      final subId = await submissionService.getOrCreateSubmission(exam.id, user.id, studentName);
       
       ref.read(studentNameProvider.notifier).state = studentName;
       ref.read(currentSubmissionIdProvider.notifier).state = subId;
