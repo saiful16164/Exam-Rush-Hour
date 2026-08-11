@@ -8,13 +8,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../models/exam.dart';
 import '../../models/written_question.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/exam_provider.dart';
 import '../../providers/written_state_provider.dart';
-import '../../services/exam_service.dart';
 import '../../services/submission_service.dart';
 import 'join_exam_page.dart';
 
@@ -61,7 +59,6 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
           }
         }
         ref.read(writtenTimerProvider.notifier).startTimer(_exam!.writtenTimeMinutes);
-
         var currentSubId = ref.read(currentSubmissionIdProvider);
         if (currentSubId.isEmpty) {
           final user = ref.read(authProvider);
@@ -75,6 +72,7 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
             ref.read(currentSubmissionIdProvider.notifier).state = currentSubId;
           }
         }
+        ref.read(writtenAnswersProvider.notifier).clear();
       }
       setState(() => _isLoading = false);
     } catch (e) {
@@ -85,24 +83,65 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
     }
   }
 
+  String _extractCleanExtension(String nameOrPath) {
+    if (nameOrPath.isEmpty) return 'png';
+    final pathOnly = nameOrPath.split('?').first;
+    final fileName = pathOnly.split(RegExp(r'[/\\]')).last;
+    final parts = fileName.split('.');
+    if (parts.length > 1) {
+      final ext = parts.last.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (ext.isNotEmpty && ext.length <= 5) {
+        return ext;
+      }
+    }
+    return 'png';
+  }
+
   Future<void> _pickFromGallery() async {
-    final ImagePicker picker = ImagePicker();
+    setState(() => _isProcessingFile = true);
     
     try {
-      final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
-      if (images.isNotEmpty) {
-        setState(() => _isProcessingFile = true);
-        List<Map<String, dynamic>> files = [];
+      List<Map<String, dynamic>> files = [];
+
+      try {
+        final FilePickerResult? result = await FilePicker.platform.pickFiles(
+          allowMultiple: true,
+          type: FileType.custom,
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+          withData: true,
+        );
+
+        if (result != null && result.files.isNotEmpty) {
+          for (var file in result.files) {
+            Uint8List? bytes = file.bytes;
+            if (bytes == null && file.path != null && file.path!.isNotEmpty) {
+              bytes = await File(file.path!).readAsBytes();
+            }
+            if (bytes != null && bytes.isNotEmpty) {
+              final ext = _extractCleanExtension(file.name.isNotEmpty ? file.name : (file.path ?? ''));
+              files.add({'bytes': bytes, 'ext': ext});
+            }
+          }
+        }
+      } catch (fpError) {
+        debugPrint('FilePicker error, falling back to ImagePicker: $fpError');
+        final ImagePicker picker = ImagePicker();
+        final List<XFile> images = await picker.pickMultiImage(imageQuality: 70);
         for (var image in images) {
           final bytes = await image.readAsBytes();
-          final ext = image.path.split('.').last.toLowerCase();
-          files.add({'bytes': bytes, 'ext': ext});
+          if (bytes.isNotEmpty) {
+            final ext = _extractCleanExtension(image.name.isNotEmpty ? image.name : image.path);
+            files.add({'bytes': bytes, 'ext': ext});
+          }
         }
+      }
+
+      if (files.isNotEmpty) {
         ref.read(writtenAnswersProvider.notifier).addImages(files);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting images: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error selecting files: $e')));
       }
     } finally {
       if (mounted) setState(() => _isProcessingFile = false);
@@ -111,6 +150,15 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
 
   Future<void> _submitWritten() async {
     if (_isSubmitting) return;
+
+    final pages = ref.read(writtenAnswersProvider);
+    if (pages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload at least one answer sheet before submitting.')),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     ref.read(writtenTimerProvider.notifier).stopTimer();
 
@@ -133,9 +181,9 @@ class _WrittenExamScreenState extends ConsumerState<WrittenExamScreen> {
         throw Exception('Could not determine submission ID. Please try joining the exam again.');
       }
 
-      final pages = ref.read(writtenAnswersProvider);
-
       await SubmissionService().submitWrittenAnswers(submissionId, pages);
+
+      ref.read(writtenAnswersProvider.notifier).clear();
 
       if (mounted) {
         context.go('/submission-complete');

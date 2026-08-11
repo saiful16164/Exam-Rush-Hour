@@ -67,16 +67,45 @@ class SubmissionService {
     }
 
     final storage = StorageService();
+
+    // Clean up any existing written answers if student is resubmitting
+    final existingAnswers = await _supabase
+        .from('written_answers')
+        .select('image_url, graded_image_url')
+        .eq('submission_id', submissionId);
+
+    if ((existingAnswers as List).isNotEmpty) {
+      for (final answer in existingAnswers) {
+        try {
+          final imageUrl = answer['image_url'] as String?;
+          if (imageUrl != null) await storage.deleteFileByUrl(imageUrl);
+          final gradedUrl = answer['graded_image_url'] as String?;
+          if (gradedUrl != null) await storage.deleteFileByUrl(gradedUrl);
+        } catch (_) {}
+      }
+      await _supabase.from('written_answers').delete().eq('submission_id', submissionId);
+    }
+
     for (int i = 0; i < pages.length; i++) {
       final data = pages[i] as Map<String, dynamic>;
+      final bytes = data['bytes'] as Uint8List;
+      final rawExt = data['ext'] as String? ?? 'png';
+      final ext = rawExt.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+      final cleanExt = ext.isEmpty ? 'png' : ext;
+
       final url = await storage.uploadWrittenAnswer(
         submissionId, 
         i + 1, 
-        data['bytes'] as Uint8List, 
-        data['ext'] as String
+        bytes, 
+        cleanExt,
       );
       await submitWrittenAnswer(submissionId, url, i + 1);
     }
+
+    // Update submission timestamp
+    await _supabase.from('submissions').update({
+      'submitted_at': DateTime.now().toIso8601String(),
+    }).eq('id', submissionId);
   }
 
   Future<List<Submission>> getSubmissionsForExam(String examId) async {

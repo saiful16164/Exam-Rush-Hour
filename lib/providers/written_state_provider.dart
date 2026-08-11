@@ -1,5 +1,4 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'dart:typed_data';
 import 'dart:async';
 
 part 'written_state_provider.g.dart';
@@ -19,6 +18,10 @@ class WrittenAnswers extends _$WrittenAnswers {
     final newState = List<Map<String, dynamic>>.from(state);
     newState.removeAt(index);
     state = newState;
+  }
+
+  void clear() {
+    state = [];
   }
 }
 
